@@ -8,12 +8,12 @@
   var PRINT_W = Math.round((210 - 25.4) * MM); // A4 인쇄 콘텐츠 너비 ~698px
 
   var STYLE_ID = "fc-pp-style";
+  var CONSTRAIN_CLS = "fc-pp-constrained";
   var LINE_CLS = "fc-pp-line";
   var STORAGE_KEY = "fc-pp-calibrated-pageH";
 
   var active = false;
   var calibratedPageH = null;
-  var savedMaxWidth;
   var timer = null;
   var rObs = null;
   var mObs = null;
@@ -32,6 +32,10 @@
     var s = document.createElement("style");
     s.id = STYLE_ID;
     s.textContent = [
+      // 너비 제한 — 인쇄 너비에 맞추기
+      "." + CONSTRAIN_CLS + " .notion-page-content{max-width:" + PRINT_W + "px!important;width:" + PRINT_W + "px!important}",
+      "." + CONSTRAIN_CLS + " .notion-page-content>div{max-width:100%!important}",
+      // 라인
       "." + LINE_CLS + "{position:absolute;left:0;right:0;height:0;border-top:2px dashed rgba(231,76,60,.5);pointer-events:none;z-index:9998}",
       ".fc-pp-label{position:absolute;right:20px;transform:translateY(-50%);font-size:11px;font-weight:600;font-family:-apple-system,sans-serif;color:rgba(231,76,60,.75);background:rgba(255,255,255,.92);padding:2px 8px;border-radius:10px;white-space:nowrap;border:1px solid rgba(231,76,60,.2)}",
       "@media print{." + LINE_CLS + "{display:none!important}}",
@@ -45,23 +49,15 @@
     return (pc && pc.closest(".notion-scroller")) || document.querySelector(".notion-scroller");
   }
 
-  // ── 너비 제한: 인쇄 너비에 맞추기 ──
+  // ── 너비 제한 ──
   function constrainWidth() {
-    var pc = document.querySelector(".notion-page-content");
-    if (!pc) return;
-    savedMaxWidth = pc.style.maxWidth;
-    pc.style.setProperty("max-width", PRINT_W + "px", "important");
+    var scroller = getScroller();
+    if (scroller) scroller.classList.add(CONSTRAIN_CLS);
   }
 
   function restoreWidth() {
-    var pc = document.querySelector(".notion-page-content");
-    if (!pc) return;
-    if (savedMaxWidth !== undefined) {
-      pc.style.maxWidth = savedMaxWidth;
-    } else {
-      pc.style.removeProperty("max-width");
-    }
-    savedMaxWidth = undefined;
+    var scroller = getScroller();
+    if (scroller) scroller.classList.remove(CONSTRAIN_CLS);
   }
 
   // ── 라인 ──
@@ -107,16 +103,28 @@
   }
 
   // ── 캘리브레이션 ──
-  function calibrate(actualPageCount) {
+  // 반드시 너비 제한 상태에서 호출해야 정확함
+  function calibrate(actualPageCount, callback) {
     var scroller = getScroller();
-    if (!scroller || actualPageCount < 1) return 0;
-    calibratedPageH = Math.round(scroller.scrollHeight / actualPageCount);
-    savePageH(calibratedPageH);
-    return drawLines();
+    if (!scroller || actualPageCount < 1) {
+      if (callback) callback(0);
+      return;
+    }
+    // 너비 제한이 적용된 후 리플로우 대기
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        calibratedPageH = Math.round(scroller.scrollHeight / actualPageCount);
+        savePageH(calibratedPageH);
+        var pages = drawLines();
+        startObserving();
+        if (callback) callback(pages);
+      });
+    });
   }
 
   // ── 옵저버 ──
   function startObserving() {
+    stopObserving();
     var scroller = getScroller();
     if (!scroller) return;
     rObs = new ResizeObserver(scheduleRedraw);
@@ -139,9 +147,10 @@
   }
 
   // ── 활성화/비활성화 ──
-  function activate() {
+  function activate(callback) {
     active = true;
     constrainWidth();
+    // 너비 변경 후 리플로우 대기
     requestAnimationFrame(function () {
       requestAnimationFrame(function () {
         var pages = 0;
@@ -149,7 +158,7 @@
           pages = drawLines();
           startObserving();
         }
-        return pages;
+        if (callback) callback(pages);
       });
     });
   }
@@ -166,19 +175,23 @@
     if (msg.action === "getState") {
       sendResponse({
         active: active,
-        pageCount: calibratedPageH ? null : null,
         totalPages: calibratedPageH ? Math.round((getScroller() || { scrollHeight: 0 }).scrollHeight / calibratedPageH) : null
       });
     } else if (msg.action === "activate") {
-      activate();
-      var pages = calibratedPageH ? Math.round((getScroller() || { scrollHeight: 0 }).scrollHeight / calibratedPageH) : null;
-      sendResponse({ totalPages: pages });
+      activate(function (pages) {
+        sendResponse({ totalPages: pages || null });
+      });
+      return true; // 비동기 응답
     } else if (msg.action === "deactivate") {
       deactivate();
       sendResponse({ ok: true });
     } else if (msg.action === "calibrate") {
-      var totalPages = calibrate(msg.pageCount);
-      sendResponse({ totalPages: totalPages });
+      // 먼저 너비 제한 확인
+      constrainWidth();
+      calibrate(msg.pageCount, function (totalPages) {
+        sendResponse({ totalPages: totalPages });
+      });
+      return true; // 비동기 응답
     }
     return true;
   });
@@ -195,7 +208,11 @@
       setTimeout(function () {
         if (active) {
           constrainWidth();
-          if (calibratedPageH) requestAnimationFrame(drawLines);
+          if (calibratedPageH) {
+            requestAnimationFrame(function () {
+              requestAnimationFrame(drawLines);
+            });
+          }
         }
       }, 1000);
     }
