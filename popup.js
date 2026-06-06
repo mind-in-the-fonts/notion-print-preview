@@ -30,8 +30,11 @@
     sendToTab(tabId, { action: "getState" }, function (state) {
       if (!state) return;
       $("toggle").checked = state.active;
-      if (state.pageCount) $("pageCount").value = state.pageCount;
-      if (state.totalPages) $("status").textContent = "미리보기: 총 " + state.totalPages + "페이지";
+      if (state.totalPages) {
+        $("status").textContent = "미리보기: 총 " + state.totalPages + "페이지";
+        $("adjust").classList.add("show");
+        updateAdjustInfo(state.pageH);
+      }
       updateUI(state.active);
     });
 
@@ -53,6 +56,8 @@
       sendToTab(tabId, { action: "calibrate", pageCount: v }, function (resp) {
         if (resp && resp.totalPages) {
           $("status").textContent = "미리보기: 총 " + resp.totalPages + "페이지";
+          $("adjust").classList.add("show");
+          updateAdjustInfo(resp.pageH);
         }
       });
     }
@@ -61,6 +66,27 @@
     $("pageCount").addEventListener("keydown", function (e) {
       if (e.key === "Enter") apply();
     });
+
+    // 미세 조정
+    function adjust(delta) {
+      sendToTab(tabId, { action: "adjustPageH", delta: delta }, function (resp) {
+        if (resp && resp.totalPages) {
+          $("status").textContent = "미리보기: 총 " + resp.totalPages + "페이지";
+          updateAdjustInfo(resp.pageH);
+        }
+      });
+    }
+
+    $("upBig").addEventListener("click", function () { adjust(-20); });
+    $("upSmall").addEventListener("click", function () { adjust(-5); });
+    $("downSmall").addEventListener("click", function () { adjust(5); });
+    $("downBig").addEventListener("click", function () { adjust(20); });
+
+    function updateAdjustInfo(pageH) {
+      if (pageH) {
+        $("adjustInfo").textContent = "페이지 높이: " + pageH + "px";
+      }
+    }
 
     function updateUI(on) {
       $("main").classList.toggle("disabled", !on);

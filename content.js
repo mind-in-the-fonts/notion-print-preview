@@ -202,11 +202,12 @@
     if (msg.action === "getState") {
       sendResponse({
         active: active,
+        pageH: calibratedPageH,
         totalPages: calibratedPageH ? Math.round(getContentHeight() / calibratedPageH) : null
       });
     } else if (msg.action === "activate") {
       activate(function (pages) {
-        sendResponse({ totalPages: pages || null });
+        sendResponse({ totalPages: pages || null, pageH: calibratedPageH });
       });
       return true;
     } else if (msg.action === "deactivate") {
@@ -214,9 +215,16 @@
       sendResponse({ ok: true });
     } else if (msg.action === "calibrate") {
       calibrate(msg.pageCount, function (totalPages) {
-        sendResponse({ totalPages: totalPages });
+        sendResponse({ totalPages: totalPages, pageH: calibratedPageH });
       });
       return true;
+    } else if (msg.action === "adjustPageH") {
+      if (calibratedPageH) {
+        calibratedPageH = Math.max(50, calibratedPageH + msg.delta);
+        savePageH(calibratedPageH);
+        var pages = drawLines();
+        sendResponse({ totalPages: pages, pageH: calibratedPageH });
+      }
     }
     return true;
   });
@@ -225,6 +233,12 @@
   calibratedPageH = loadPageH();
   ensureStyle();
   cleanupLegacy();
+  // 이전 스크립트가 재생성할 수 있으므로 반복 정리 (10회)
+  var cleanCount = 0;
+  var cleanTimer = setInterval(function () {
+    cleanupLegacy();
+    if (++cleanCount >= 10) clearInterval(cleanTimer);
+  }, 1000);
 
   // SPA 네비게이션 감지
   var lastUrl = location.href;
