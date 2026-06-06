@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 280px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", sans-serif;
+      font-size: 13px;
+      color: #333;
+      background: #fff;
+      -webkit-font-smoothing: antialiased;
+    }
+    .header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 16px 12px;
+      border-bottom: 1px solid #eee;
+    }
+    .brand { display: flex; align-items: center; gap: 8px; }
+    .brand-icon {
+      width: 28px; height: 28px; border-radius: 7px;
+      background: #e74c3c; color: #fff;
+      display: grid; place-items: center;
+      font-size: 14px; font-weight: 700;
+    }
+    .brand h1 { font-size: 14px; font-weight: 700; }
+    .switch { position: relative; width: 40px; height: 22px; flex: none; cursor: pointer; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute; inset: 0; background: #d8d3c8; border-radius: 999px;
+      transition: background .2s;
+    }
+    .slider::before {
+      content: ""; position: absolute; height: 16px; width: 16px;
+      left: 3px; top: 3px; background: #fff; border-radius: 50%;
+      box-shadow: 0 1px 3px rgba(0,0,0,.2); transition: transform .2s;
+    }
+    .switch input:checked + .slider { background: #e74c3c; }
+    .switch input:checked + .slider::before { transform: translateX(18px); }
+
+    main { padding: 14px 16px; }
+    main.disabled { opacity: .45; pointer-events: none; }
+
+    .hint { font-size: 11.5px; color: #999; line-height: 1.5; margin-bottom: 10px; }
+    .row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+    .input {
+      width: 64px; padding: 6px 8px; font-size: 13px; text-align: center;
+      border: 1px solid #ddd; border-radius: 7px; outline: none;
+      font-family: inherit;
+    }
+    .input:focus { border-color: #e74c3c; box-shadow: 0 0 0 2px rgba(231,76,60,.12); }
+    .label { font-size: 13px; color: #666; }
+    .btn {
+      padding: 6px 14px; font-size: 12px; font-weight: 600;
+      border: none; border-radius: 7px; cursor: pointer;
+      background: #e74c3c; color: #fff; transition: background .15s;
+    }
+    .btn:hover { background: #c0392b; }
+    .status {
+      font-size: 12px; font-weight: 600; color: #e74c3c;
+      min-height: 18px;
+    }
+
+    footer {
+      padding: 10px 16px 12px;
+      border-top: 1px solid #eee;
+      font-size: 11px; color: #aaa;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .dot { width: 6px; height: 6px; border-radius: 50%; background: #c5cf6a; flex: none; }
+    .dot.off { background: #d8d3c8; }
+
+    .unsupported {
+      padding: 24px 20px; text-align: center;
+    }
+    .unsupported h2 { font-size: 14px; font-weight: 650; margin-bottom: 8px; }
+    .unsupported p { font-size: 12.5px; color: #999; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <div id="supported" style="display:none">
+    <div class="header">
+      <div class="brand">
+        <div class="brand-icon">P</div>
+        <h1>Print Preview</h1>
+      </div>
+      <label class="switch" title="미리보기 켜기/끄기">
+        <input type="checkbox" id="toggle" />
+        <span class="slider"></span>
+      </label>
+    </div>
+    <main id="main">
+      <div class="hint">
+        1. Cmd+P 로 페이지 수 확인<br>
+        2. 아래에 입력 후 적용
+      </div>
+      <div class="row">
+        <input type="number" id="pageCount" class="input" min="1" placeholder="31" />
+        <span class="label">페이지</span>
+        <button id="applyBtn" class="btn">적용</button>
+      </div>
+      <div id="status" class="status"></div>
+    </main>
+    <footer>
+      <span class="dot" id="dot"></span>
+      <span id="footerText">Notion 페이지에서 사용하세요</span>
+    </footer>
+  </div>
+
+  <div id="unsupported" class="unsupported" style="display:none">
+    <h2>Notion 페이지가 아니에요</h2>
+    <p>Notion 페이지에서 이 확장을 열어주세요.</p>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

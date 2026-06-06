@@ -1,5 +1,4 @@
-// print-preview.js — Notion 프린트 페이지 미리보기
-// 미리보기 ON → 콘텐츠를 인쇄 너비로 축소 → 페이지 수 입력 → 정확한 구분선
+// content.js — Notion 프린트 페이지 미리보기 (popup 통신)
 (function () {
   "use strict";
 
@@ -10,8 +9,6 @@
 
   var STYLE_ID = "fc-pp-style";
   var LINE_CLS = "fc-pp-line";
-  var TOGGLE_ID = "fc-pp-toggle";
-  var PANEL_ID = "fc-pp-panel";
   var STORAGE_KEY = "fc-pp-calibrated-pageH";
 
   var active = false;
@@ -35,35 +32,9 @@
     var s = document.createElement("style");
     s.id = STYLE_ID;
     s.textContent = [
-      "#" + TOGGLE_ID + "{",
-      "  position:fixed;bottom:24px;left:24px;z-index:99999;",
-      "  width:44px;height:44px;border-radius:50%;",
-      "  border:2px solid #e0e0e0;background:#fff;",
-      "  cursor:pointer;font-size:20px;line-height:1;",
-      "  display:flex;align-items:center;justify-content:center;",
-      "  box-shadow:0 2px 10px rgba(0,0,0,.12);",
-      "  transition:all .2s;font-family:-apple-system,sans-serif;",
-      "}",
-      "#" + TOGGLE_ID + ":hover{transform:scale(1.08);box-shadow:0 4px 16px rgba(0,0,0,.2)}",
-      "#" + TOGGLE_ID + ".active{border-color:#e74c3c;background:#fdf0ef;box-shadow:0 2px 10px rgba(231,76,60,.25)}",
-      "#" + PANEL_ID + "{",
-      "  display:none;position:fixed;bottom:76px;left:24px;z-index:99999;",
-      "  background:#fff;border:1px solid #e0e0e0;border-radius:12px;",
-      "  padding:14px 16px;box-shadow:0 4px 20px rgba(0,0,0,.15);",
-      "  font-family:-apple-system,sans-serif;font-size:13px;color:#333;",
-      "  min-width:240px;",
-      "}",
-      "#" + PANEL_ID + ".open{display:block}",
-      ".fc-pp-row{display:flex;align-items:center;gap:8px;margin-top:8px}",
-      ".fc-pp-input{width:60px;padding:5px 8px;font-size:13px;text-align:center;border:1px solid #ddd;border-radius:6px;outline:none;font-family:inherit}",
-      ".fc-pp-input:focus{border-color:#e74c3c;box-shadow:0 0 0 2px rgba(231,76,60,.15)}",
-      ".fc-pp-btn{padding:5px 12px;font-size:12px;font-weight:600;border:none;border-radius:6px;cursor:pointer;background:#e74c3c;color:#fff;transition:background .15s}",
-      ".fc-pp-btn:hover{background:#c0392b}",
-      ".fc-pp-hint{font-size:11px;color:#999;margin-top:6px;line-height:1.4}",
-      ".fc-pp-status{font-size:12px;color:#e74c3c;font-weight:600;margin-top:6px}",
       "." + LINE_CLS + "{position:absolute;left:0;right:0;height:0;border-top:2px dashed rgba(231,76,60,.5);pointer-events:none;z-index:9998}",
       ".fc-pp-label{position:absolute;right:20px;transform:translateY(-50%);font-size:11px;font-weight:600;font-family:-apple-system,sans-serif;color:rgba(231,76,60,.75);background:rgba(255,255,255,.92);padding:2px 8px;border-radius:10px;white-space:nowrap;border:1px solid rgba(231,76,60,.2)}",
-      "@media print{#" + TOGGLE_ID + ",." + LINE_CLS + ",#" + PANEL_ID + "{display:none!important}}",
+      "@media print{." + LINE_CLS + "{display:none!important}}",
     ].join("\n");
     (document.head || document.documentElement).appendChild(s);
   }
@@ -100,10 +71,10 @@
 
   function drawLines() {
     clearLines();
-    if (!calibratedPageH) return;
+    if (!calibratedPageH) return 0;
 
     var scroller = getScroller();
-    if (!scroller) return;
+    if (!scroller) return 0;
 
     if (getComputedStyle(scroller).position === "static") {
       scroller.style.position = "relative";
@@ -125,7 +96,7 @@
       scroller.appendChild(line);
     }
 
-    updateStatus(pages);
+    return pages;
   }
 
   function scheduleRedraw() {
@@ -138,77 +109,10 @@
   // ── 캘리브레이션 ──
   function calibrate(actualPageCount) {
     var scroller = getScroller();
-    if (!scroller || actualPageCount < 1) return;
-    // 너비가 인쇄 너비로 제한된 상태에서 측정 → 인쇄 레이아웃과 동일
+    if (!scroller || actualPageCount < 1) return 0;
     calibratedPageH = Math.round(scroller.scrollHeight / actualPageCount);
     savePageH(calibratedPageH);
-    drawLines();
-  }
-
-  // ── UI ──
-  function updateStatus(pageCount) {
-    var el = document.querySelector(".fc-pp-status");
-    if (el) el.textContent = "미리보기: 총 " + pageCount + "페이지";
-  }
-
-  function createPanel() {
-    if (document.getElementById(PANEL_ID)) return;
-    var panel = document.createElement("div");
-    panel.id = PANEL_ID;
-
-    var title = document.createElement("div");
-    title.style.cssText = "font-weight:700;font-size:14px;margin-bottom:2px";
-    title.textContent = "프린트 미리보기";
-    panel.appendChild(title);
-
-    var hint = document.createElement("div");
-    hint.className = "fc-pp-hint";
-    hint.textContent = "1. Cmd+P \uB85C \uD398\uC774\uC9C0 \uC218 \uD655\uC778";
-    panel.appendChild(hint);
-
-    var hint2 = document.createElement("div");
-    hint2.className = "fc-pp-hint";
-    hint2.textContent = "2. \uC544\uB798\uC5D0 \uC785\uB825 \uD6C4 \uC801\uC6A9";
-    panel.appendChild(hint2);
-
-    var row = document.createElement("div");
-    row.className = "fc-pp-row";
-
-    var input = document.createElement("input");
-    input.type = "number";
-    input.className = "fc-pp-input";
-    input.min = "1";
-    input.placeholder = "31";
-    row.appendChild(input);
-
-    var label = document.createElement("span");
-    label.textContent = "페이지";
-    label.style.cssText = "font-size:13px;color:#666";
-    row.appendChild(label);
-
-    var btn = document.createElement("button");
-    btn.className = "fc-pp-btn";
-    btn.textContent = "적용";
-    btn.addEventListener("click", function () {
-      var v = parseInt(input.value, 10);
-      if (v > 0) calibrate(v);
-    });
-    row.appendChild(btn);
-    panel.appendChild(row);
-
-    input.addEventListener("keydown", function (e) {
-      if (e.key === "Enter") {
-        var v = parseInt(input.value, 10);
-        if (v > 0) calibrate(v);
-      }
-    });
-
-    var status = document.createElement("div");
-    status.className = "fc-pp-status";
-    if (calibratedPageH) status.textContent = "이전 설정 적용됨";
-    panel.appendChild(status);
-
-    document.body.appendChild(panel);
+    return drawLines();
   }
 
   // ── 옵저버 ──
@@ -221,7 +125,7 @@
       var dominated = muts.every(function (m) {
         return Array.from(m.addedNodes).concat(Array.from(m.removedNodes))
           .every(function (n) {
-            return n.nodeType === 1 && (n.classList.contains(LINE_CLS) || n.id === TOGGLE_ID || n.id === PANEL_ID);
+            return n.nodeType === 1 && n.classList.contains(LINE_CLS);
           });
       });
       if (!dominated) scheduleRedraw();
@@ -234,20 +138,18 @@
     if (mObs) { mObs.disconnect(); mObs = null; }
   }
 
-  // ── 토글 ──
+  // ── 활성화/비활성화 ──
   function activate() {
     active = true;
     constrainWidth();
-    var panel = document.getElementById(PANEL_ID);
-    if (panel) panel.classList.add("open");
-
-    // 너비 변경 후 리플로우 대기
     requestAnimationFrame(function () {
       requestAnimationFrame(function () {
+        var pages = 0;
         if (calibratedPageH) {
-          drawLines();
+          pages = drawLines();
           startObserving();
         }
+        return pages;
       });
     });
   }
@@ -257,47 +159,40 @@
     stopObserving();
     clearLines();
     restoreWidth();
-    var panel = document.getElementById(PANEL_ID);
-    if (panel) panel.classList.remove("open");
   }
 
-  function toggle() {
-    active ? deactivate() : activate();
-    var btn = document.getElementById(TOGGLE_ID);
-    if (btn) btn.classList.toggle("active", active);
-  }
-
-  function createToggle() {
-    if (document.getElementById(TOGGLE_ID)) return;
-    var btn = document.createElement("button");
-    btn.id = TOGGLE_ID;
-    btn.title = "프린트 페이지 미리보기 (on/off)";
-    btn.textContent = "\uD83D\uDCC4";
-    btn.addEventListener("click", toggle);
-    document.body.appendChild(btn);
-  }
+  // ── 팝업 메시지 수신 ──
+  chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
+    if (msg.action === "getState") {
+      sendResponse({
+        active: active,
+        pageCount: calibratedPageH ? null : null,
+        totalPages: calibratedPageH ? Math.round((getScroller() || { scrollHeight: 0 }).scrollHeight / calibratedPageH) : null
+      });
+    } else if (msg.action === "activate") {
+      activate();
+      var pages = calibratedPageH ? Math.round((getScroller() || { scrollHeight: 0 }).scrollHeight / calibratedPageH) : null;
+      sendResponse({ totalPages: pages });
+    } else if (msg.action === "deactivate") {
+      deactivate();
+      sendResponse({ ok: true });
+    } else if (msg.action === "calibrate") {
+      var totalPages = calibrate(msg.pageCount);
+      sendResponse({ totalPages: totalPages });
+    }
+    return true;
+  });
 
   // ── 초기화 ──
-  function init() {
-    calibratedPageH = loadPageH();
-    ensureStyle();
-    createToggle();
-    createPanel();
-  }
+  calibratedPageH = loadPageH();
+  ensureStyle();
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
-  } else {
-    init();
-  }
-
+  // SPA 네비게이션 감지
   var lastUrl = location.href;
   new MutationObserver(function () {
     if (location.href !== lastUrl) {
       lastUrl = location.href;
       setTimeout(function () {
-        if (!document.getElementById(TOGGLE_ID)) createToggle();
-        if (!document.getElementById(PANEL_ID)) createPanel();
         if (active) {
           constrainWidth();
           if (calibratedPageH) requestAnimationFrame(drawLines);

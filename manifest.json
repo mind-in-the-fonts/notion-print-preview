@@ -3,12 +3,21 @@
   "name": "Notion Print Preview",
   "version": "0.1.0",
   "description": "Notion 페이지에서 프린트 페이지 구분선을 미리 확인하는 확장 프로그램",
-  "permissions": [],
+  "permissions": ["tabs"],
   "host_permissions": [
     "https://*.notion.so/*",
     "https://*.notion.com/*",
     "https://*.notion.site/*"
   ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Print Preview",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
   "content_scripts": [
     {
       "matches": [
