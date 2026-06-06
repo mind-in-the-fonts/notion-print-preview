@@ -93,67 +93,67 @@
     if (scroller) scroller.classList.remove(CONSTRAIN_CLS);
   }
 
-  // ── 블록 단위 페이지네이션 시뮬레이션 ──
-  function computePageBreaks(pageH) {
-    var scroller = getScroller();
-    var pc = document.querySelector(".notion-page-content");
-    if (!scroller || !pc || pageH < 50) return [];
-
-    ensurePositioned(scroller);
+  // ── 잘리면 안 되는 요소 수집 (테이블, 이미지, 코드 블록 등) ──
+  function collectKeepTogetherElements(scroller) {
     var scrollerRect = scroller.getBoundingClientRect();
     var scrollTop = scroller.scrollTop;
+    var elements = [];
+
+    // 테이블, 이미지, 코드블록, 캘린더 등
+    var selectors = [
+      ".notion-page-content table",
+      ".notion-page-content .notion-table-block",
+      ".notion-page-content .notion-collection_view-block",
+      ".notion-page-content .notion-image-block",
+      ".notion-page-content .notion-code-block",
+      ".notion-page-content .notion-callout-block",
+      ".notion-page-content img"
+    ];
+
+    var els = document.querySelectorAll(selectors.join(","));
+    els.forEach(function (el) {
+      var rect = el.getBoundingClientRect();
+      if (rect.height < 2) return;
+      elements.push({
+        top: Math.round(rect.top - scrollerRect.top + scrollTop),
+        bottom: Math.round(rect.bottom - scrollerRect.top + scrollTop),
+        height: Math.round(rect.height)
+      });
+    });
+
+    return elements;
+  }
+
+  // ── 페이지 나눔 위치 계산 ──
+  function computePageBreaks(pageH) {
+    var scroller = getScroller();
+    if (!scroller || pageH < 50) return [];
+
+    ensurePositioned(scroller);
+    var contentH = getContentHeight();
+    var keepTogether = collectKeepTogetherElements(scroller);
 
     var breaks = [];
-    var pageBottom = pageH; // 1페이지 끝
+    var pageBottom = pageH;
 
-    // .notion-page-content 의 직접 자식 = Notion 블록
-    var blocks = pc.children;
-    for (var i = 0; i < blocks.length; i++) {
-      var block = blocks[i];
-      if (block.classList.contains(LINE_CLS)) continue;
+    while (pageBottom < contentH - 50) {
+      var adjusted = pageBottom;
 
-      var rect = block.getBoundingClientRect();
-      var blockTop = rect.top - scrollerRect.top + scrollTop;
-      var blockH = rect.height;
-      var blockBottom = blockTop + blockH;
-
-      if (blockH < 1) continue; // 빈 블록 무시
-      if (blockBottom <= pageBottom) continue; // 현재 페이지에 들어감
-
-      if (blockTop >= pageBottom) {
-        // 블록이 페이지 경계 이후에 시작 → 페이지 넘기기
-        breaks.push(pageBottom);
-        pageBottom += pageH;
-        // 블록 시작까지 빈 페이지가 있으면 넘기기
-        while (pageBottom <= blockTop) {
-          breaks.push(pageBottom);
-          pageBottom += pageH;
-        }
-        // 이 페이지에 들어가는지 확인
-        if (blockBottom > pageBottom) {
-          if (blockH <= pageH) {
-            // 한 페이지에 들어가지만 현재 페이지엔 안 됨 → 다음으로
-            breaks.push(blockTop);
-            pageBottom = blockTop + pageH;
-          } else {
-            // 블록이 페이지보다 큼 → 페이지 경계에서 자르기
-            while (blockBottom > pageBottom) {
-              breaks.push(pageBottom);
-              pageBottom += pageH;
-            }
+      // 이 위치가 "잘리면 안 되는 요소" 내부인지 확인
+      for (var i = 0; i < keepTogether.length; i++) {
+        var el = keepTogether[i];
+        if (adjusted > el.top && adjusted < el.bottom) {
+          // 요소 내부에서 잘림 → 요소 위로 올리기 (단, 페이지가 너무 짧아지지 않게)
+          if (el.top > (breaks.length ? breaks[breaks.length - 1] : 0) + pageH * 0.3) {
+            adjusted = el.top;
           }
-        }
-      } else if (blockH <= pageH) {
-        // 블록이 현재 페이지에서 시작했지만 넘침 → 통째로 다음 페이지로
-        breaks.push(blockTop);
-        pageBottom = blockTop + pageH;
-      } else {
-        // 블록이 페이지보다 큼 → 페이지 경계에서 자르기
-        while (blockBottom > pageBottom) {
-          breaks.push(pageBottom);
-          pageBottom += pageH;
+          // 요소가 한 페이지보다 크면 그냥 자르기 (어쩔 수 없음)
+          break;
         }
       }
+
+      breaks.push(adjusted);
+      pageBottom = adjusted + pageH;
     }
 
     return breaks;
