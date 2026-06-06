@@ -18,6 +18,14 @@
   var rObs = null;
   var mObs = null;
 
+  // ── 이전 버전 잔여물 정리 ──
+  function cleanupLegacy() {
+    var old = document.getElementById("fc-pp-toggle");
+    if (old) old.remove();
+    old = document.getElementById("fc-pp-panel");
+    if (old) old.remove();
+  }
+
   function savePageH(v) {
     try { localStorage.setItem(STORAGE_KEY, String(v)); } catch (e) {}
   }
@@ -49,6 +57,25 @@
     return (pc && pc.closest(".notion-scroller")) || document.querySelector(".notion-scroller");
   }
 
+  // ── 콘텐츠 높이 측정 (Notion 하단 패딩 제외) ──
+  function getContentHeight() {
+    var scroller = getScroller();
+    if (!scroller) return 0;
+
+    // scroller 기준 position 확보
+    if (getComputedStyle(scroller).position === "static") {
+      scroller.style.position = "relative";
+    }
+
+    var pc = document.querySelector(".notion-page-content");
+    if (pc) {
+      // .notion-page-content 의 실제 끝까지만 측정
+      // (scroller 의 하단 패딩 = 스크롤 여유 공간 제외)
+      return pc.offsetTop + pc.offsetHeight;
+    }
+    return scroller.scrollHeight;
+  }
+
   // ── 너비 제한 ──
   function constrainWidth() {
     var scroller = getScroller();
@@ -76,8 +103,8 @@
       scroller.style.position = "relative";
     }
 
-    var total = scroller.scrollHeight;
-    var pages = Math.round(total / calibratedPageH);
+    var contentH = getContentHeight();
+    var pages = Math.round(contentH / calibratedPageH);
 
     for (var i = 1; i < pages; i++) {
       var line = document.createElement("div");
@@ -103,17 +130,18 @@
   }
 
   // ── 캘리브레이션 ──
-  // 반드시 너비 제한 상태에서 호출해야 정확함
   function calibrate(actualPageCount, callback) {
     var scroller = getScroller();
     if (!scroller || actualPageCount < 1) {
       if (callback) callback(0);
       return;
     }
-    // 너비 제한이 적용된 후 리플로우 대기
+    // 너비 제한 적용 + 리플로우 대기
+    constrainWidth();
     requestAnimationFrame(function () {
       requestAnimationFrame(function () {
-        calibratedPageH = Math.round(scroller.scrollHeight / actualPageCount);
+        var contentH = getContentHeight();
+        calibratedPageH = Math.round(contentH / actualPageCount);
         savePageH(calibratedPageH);
         var pages = drawLines();
         startObserving();
@@ -150,7 +178,6 @@
   function activate(callback) {
     active = true;
     constrainWidth();
-    // 너비 변경 후 리플로우 대기
     requestAnimationFrame(function () {
       requestAnimationFrame(function () {
         var pages = 0;
@@ -175,23 +202,21 @@
     if (msg.action === "getState") {
       sendResponse({
         active: active,
-        totalPages: calibratedPageH ? Math.round((getScroller() || { scrollHeight: 0 }).scrollHeight / calibratedPageH) : null
+        totalPages: calibratedPageH ? Math.round(getContentHeight() / calibratedPageH) : null
       });
     } else if (msg.action === "activate") {
       activate(function (pages) {
         sendResponse({ totalPages: pages || null });
       });
-      return true; // 비동기 응답
+      return true;
     } else if (msg.action === "deactivate") {
       deactivate();
       sendResponse({ ok: true });
     } else if (msg.action === "calibrate") {
-      // 먼저 너비 제한 확인
-      constrainWidth();
       calibrate(msg.pageCount, function (totalPages) {
         sendResponse({ totalPages: totalPages });
       });
-      return true; // 비동기 응답
+      return true;
     }
     return true;
   });
@@ -199,6 +224,7 @@
   // ── 초기화 ──
   calibratedPageH = loadPageH();
   ensureStyle();
+  cleanupLegacy();
 
   // SPA 네비게이션 감지
   var lastUrl = location.href;
@@ -206,6 +232,7 @@
     if (location.href !== lastUrl) {
       lastUrl = location.href;
       setTimeout(function () {
+        cleanupLegacy();
         if (active) {
           constrainWidth();
           if (calibratedPageH) {
