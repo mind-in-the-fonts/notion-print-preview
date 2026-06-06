@@ -31,9 +31,7 @@
       if (!state) return;
       $("toggle").checked = state.active;
       if (state.totalPages) {
-        $("status").textContent = "미리보기: 총 " + state.totalPages + "페이지";
-        $("adjust").classList.add("show");
-        updateAdjustInfo(state.pageH);
+        showResult(state.totalPages, state.pageH);
       }
       updateUI(state.active);
     });
@@ -44,36 +42,29 @@
       sendToTab(tabId, { action: on ? "activate" : "deactivate" }, function (resp) {
         updateUI(on);
         if (resp && resp.totalPages) {
-          $("status").textContent = "미리보기: 총 " + resp.totalPages + "페이지";
+          showResult(resp.totalPages, resp.pageH);
         }
       });
     });
 
-    // 적용
-    function apply() {
-      var v = parseInt($("pageCount").value, 10);
-      if (!v || v < 1) return;
-      sendToTab(tabId, { action: "calibrate", pageCount: v }, function (resp) {
-        if (resp && resp.totalPages) {
-          $("status").textContent = "미리보기: 총 " + resp.totalPages + "페이지";
-          $("adjust").classList.add("show");
-          updateAdjustInfo(resp.pageH);
-        }
-      });
-    }
+    // 마크 모드 (클릭으로 위치 지정)
+    $("markBtn").addEventListener("click", function () {
+      sendToTab(tabId, { action: "enterMarkMode" });
+      // 팝업 닫기 — 유저가 페이지에서 클릭해야 하므로
+      window.close();
+    });
 
-    $("applyBtn").addEventListener("click", apply);
-    $("pageCount").addEventListener("keydown", function (e) {
-      if (e.key === "Enter") apply();
+    // content script → popup 메시지 수신 (마크 완료 시)
+    chrome.runtime.onMessage.addListener(function (msg) {
+      if (msg.action === "markDone") {
+        showResult(msg.totalPages, msg.pageH);
+      }
     });
 
     // 미세 조정
     function adjust(delta) {
       sendToTab(tabId, { action: "adjustPageH", delta: delta }, function (resp) {
-        if (resp && resp.totalPages) {
-          $("status").textContent = "미리보기: 총 " + resp.totalPages + "페이지";
-          updateAdjustInfo(resp.pageH);
-        }
+        if (resp) showResult(resp.totalPages, resp.pageH);
       });
     }
 
@@ -82,10 +73,10 @@
     $("downSmall").addEventListener("click", function () { adjust(5); });
     $("downBig").addEventListener("click", function () { adjust(20); });
 
-    function updateAdjustInfo(pageH) {
-      if (pageH) {
-        $("adjustInfo").textContent = "페이지 높이: " + pageH + "px";
-      }
+    function showResult(totalPages, pageH) {
+      $("status").textContent = "미리보기: 총 " + totalPages + "페이지";
+      $("adjust").classList.add("show");
+      if (pageH) $("adjustInfo").textContent = pageH + "px";
     }
 
     function updateUI(on) {

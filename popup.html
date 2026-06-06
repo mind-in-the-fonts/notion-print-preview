@@ -42,27 +42,30 @@
     main { padding: 14px 16px; }
     main.disabled { opacity: .45; pointer-events: none; }
 
-    .hint { font-size: 11.5px; color: #999; line-height: 1.5; margin-bottom: 10px; }
-    .row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-    .input {
-      width: 64px; padding: 6px 8px; font-size: 13px; text-align: center;
-      border: 1px solid #ddd; border-radius: 7px; outline: none;
-      font-family: inherit;
+    .step { margin-bottom: 12px; }
+    .step-num {
+      display: inline-block; width: 18px; height: 18px; border-radius: 50%;
+      background: #e74c3c; color: #fff; text-align: center;
+      font-size: 11px; font-weight: 700; line-height: 18px;
+      margin-right: 4px;
     }
-    .input:focus { border-color: #e74c3c; box-shadow: 0 0 0 2px rgba(231,76,60,.12); }
-    .label { font-size: 13px; color: #666; }
-    .btn {
-      padding: 6px 14px; font-size: 12px; font-weight: 600;
-      border: none; border-radius: 7px; cursor: pointer;
-      background: #e74c3c; color: #fff; transition: background .15s;
+    .step-text { font-size: 12.5px; color: #555; }
+    .step-desc { font-size: 11px; color: #999; margin-top: 4px; margin-left: 22px; line-height: 1.4; }
+
+    .mark-btn {
+      display: block; width: 100%; padding: 10px; font-size: 13px; font-weight: 600;
+      border: 2px dashed #e74c3c; border-radius: 8px; cursor: pointer;
+      background: #fdf0ef; color: #e74c3c; transition: all .15s;
+      margin-top: 6px;
     }
-    .btn:hover { background: #c0392b; }
+    .mark-btn:hover { background: #fbe4e1; }
+
     .status {
       font-size: 12px; font-weight: 600; color: #e74c3c;
-      min-height: 18px;
+      min-height: 18px; margin-top: 10px;
     }
 
-    .adjust { display: none; margin-top: 10px; }
+    .adjust { display: none; margin-top: 10px; padding-top: 10px; border-top: 1px solid #f0f0f0; }
     .adjust.show { display: block; }
     .adjust-label { font-size: 11.5px; color: #999; margin-bottom: 6px; }
     .adjust-row { display: flex; align-items: center; gap: 6px; }
@@ -105,18 +108,19 @@
       </label>
     </div>
     <main id="main">
-      <div class="hint">
-        1. Cmd+P 로 페이지 수 확인<br>
-        2. 아래에 입력 후 적용
+      <div class="step">
+        <span class="step-num">1</span>
+        <span class="step-text">Cmd+P 로 1페이지 마지막 내용 확인</span>
       </div>
-      <div class="row">
-        <input type="number" id="pageCount" class="input" min="1" placeholder="31" />
-        <span class="label">페이지</span>
-        <button id="applyBtn" class="btn">적용</button>
+      <div class="step">
+        <span class="step-num">2</span>
+        <span class="step-text">아래 버튼을 누르고 그 위치를 클릭</span>
+        <div class="step-desc">클릭한 위치가 1페이지 끝이 됩니다.<br>나머지 페이지는 자동으로 계산됩니다.</div>
       </div>
+      <button id="markBtn" class="mark-btn">클릭으로 위치 지정</button>
       <div id="status" class="status"></div>
       <div id="adjust" class="adjust">
-        <div class="adjust-label">구분선 위치가 안 맞으면 조정하세요</div>
+        <div class="adjust-label">미세 조정</div>
         <div class="adjust-row">
           <button class="adj-btn" id="upBig" title="크게 위로">&#x25B2;</button>
           <button class="adj-btn" id="upSmall" title="조금 위로">&#x25B5;</button>
