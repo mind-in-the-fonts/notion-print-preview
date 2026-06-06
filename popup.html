@@ -42,21 +42,31 @@
     main { padding: 14px 16px; }
     main.disabled { opacity: .45; pointer-events: none; }
 
-    .step { margin-bottom: 12px; }
-    .step-num {
-      display: inline-block; width: 18px; height: 18px; border-radius: 50%;
-      background: #e74c3c; color: #fff; text-align: center;
-      font-size: 11px; font-weight: 700; line-height: 18px;
-      margin-right: 4px;
+    .section { margin-bottom: 12px; }
+    .section-title { font-size: 11px; font-weight: 700; color: #999; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; }
+    .hint { font-size: 11.5px; color: #999; line-height: 1.5; margin-bottom: 8px; }
+
+    .row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    .input {
+      width: 64px; padding: 6px 8px; font-size: 13px; text-align: center;
+      border: 1px solid #ddd; border-radius: 7px; outline: none;
+      font-family: inherit;
     }
-    .step-text { font-size: 12.5px; color: #555; }
-    .step-desc { font-size: 11px; color: #999; margin-top: 4px; margin-left: 22px; line-height: 1.4; }
+    .input:focus { border-color: #e74c3c; box-shadow: 0 0 0 2px rgba(231,76,60,.12); }
+    .label { font-size: 13px; color: #666; }
+    .btn {
+      padding: 6px 14px; font-size: 12px; font-weight: 600;
+      border: none; border-radius: 7px; cursor: pointer;
+      background: #e74c3c; color: #fff; transition: background .15s;
+    }
+    .btn:hover { background: #c0392b; }
+
+    .or { text-align: center; font-size: 11px; color: #ccc; margin: 8px 0; }
 
     .mark-btn {
       display: block; width: 100%; padding: 10px; font-size: 13px; font-weight: 600;
       border: 2px dashed #e74c3c; border-radius: 8px; cursor: pointer;
       background: #fdf0ef; color: #e74c3c; transition: all .15s;
-      margin-top: 6px;
     }
     .mark-btn:hover { background: #fbe4e1; }
 
@@ -76,7 +86,6 @@
       display: flex; align-items: center; justify-content: center;
     }
     .adj-btn:hover { background: #eee; border-color: #ccc; }
-    .adj-btn:active { background: #e0e0e0; }
     .adjust-info { font-size: 11px; color: #aaa; margin-left: 4px; }
 
     footer {
@@ -88,9 +97,7 @@
     .dot { width: 6px; height: 6px; border-radius: 50%; background: #c5cf6a; flex: none; }
     .dot.off { background: #d8d3c8; }
 
-    .unsupported {
-      padding: 24px 20px; text-align: center;
-    }
+    .unsupported { padding: 24px 20px; text-align: center; }
     .unsupported h2 { font-size: 14px; font-weight: 650; margin-bottom: 8px; }
     .unsupported p { font-size: 12.5px; color: #999; line-height: 1.5; }
   </style>
@@ -108,24 +115,31 @@
       </label>
     </div>
     <main id="main">
-      <div class="step">
-        <span class="step-num">1</span>
-        <span class="step-text">Cmd+P 로 1페이지 마지막 내용 확인</span>
+      <div class="section">
+        <div class="hint">Cmd+P 로 페이지 수 확인 후 입력</div>
+        <div class="row">
+          <input type="number" id="pageCount" class="input" min="1" placeholder="31" />
+          <span class="label">페이지</span>
+          <button id="applyBtn" class="btn">적용</button>
+        </div>
       </div>
-      <div class="step">
-        <span class="step-num">2</span>
-        <span class="step-text">아래 버튼을 누르고 그 위치를 클릭</span>
-        <div class="step-desc">클릭한 위치가 1페이지 끝이 됩니다.<br>나머지 페이지는 자동으로 계산됩니다.</div>
+
+      <div class="or">또는</div>
+
+      <div class="section">
+        <div class="hint">1페이지 마지막 내용 위치를 직접 클릭</div>
+        <button id="markBtn" class="mark-btn">클릭으로 위치 지정</button>
       </div>
-      <button id="markBtn" class="mark-btn">클릭으로 위치 지정</button>
+
       <div id="status" class="status"></div>
+
       <div id="adjust" class="adjust">
         <div class="adjust-label">미세 조정</div>
         <div class="adjust-row">
-          <button class="adj-btn" id="upBig" title="크게 위로">&#x25B2;</button>
-          <button class="adj-btn" id="upSmall" title="조금 위로">&#x25B5;</button>
-          <button class="adj-btn" id="downSmall" title="조금 아래로">&#x25BF;</button>
-          <button class="adj-btn" id="downBig" title="크게 아래로">&#x25BC;</button>
+          <button class="adj-btn" id="upBig" title="20px 위로">&#x25B2;</button>
+          <button class="adj-btn" id="upSmall" title="5px 위로">&#x25B5;</button>
+          <button class="adj-btn" id="downSmall" title="5px 아래로">&#x25BF;</button>
+          <button class="adj-btn" id="downBig" title="20px 아래로">&#x25BC;</button>
           <span class="adjust-info" id="adjustInfo"></span>
         </div>
       </div>

@@ -30,9 +30,7 @@
     sendToTab(tabId, { action: "getState" }, function (state) {
       if (!state) return;
       $("toggle").checked = state.active;
-      if (state.totalPages) {
-        showResult(state.totalPages, state.pageH);
-      }
+      if (state.totalPages) showResult(state.totalPages, state.pageH);
       updateUI(state.active);
     });
 
@@ -41,24 +39,32 @@
       var on = $("toggle").checked;
       sendToTab(tabId, { action: on ? "activate" : "deactivate" }, function (resp) {
         updateUI(on);
-        if (resp && resp.totalPages) {
-          showResult(resp.totalPages, resp.pageH);
-        }
+        if (resp && resp.totalPages) showResult(resp.totalPages, resp.pageH);
       });
     });
 
-    // 마크 모드 (클릭으로 위치 지정)
+    // 페이지 수 입력
+    function apply() {
+      var v = parseInt($("pageCount").value, 10);
+      if (!v || v < 1) return;
+      sendToTab(tabId, { action: "calibrate", pageCount: v }, function (resp) {
+        if (resp && resp.totalPages) showResult(resp.totalPages, resp.pageH);
+      });
+    }
+    $("applyBtn").addEventListener("click", apply);
+    $("pageCount").addEventListener("keydown", function (e) {
+      if (e.key === "Enter") apply();
+    });
+
+    // 클릭으로 위치 지정
     $("markBtn").addEventListener("click", function () {
       sendToTab(tabId, { action: "enterMarkMode" });
-      // 팝업 닫기 — 유저가 페이지에서 클릭해야 하므로
       window.close();
     });
 
-    // content script → popup 메시지 수신 (마크 완료 시)
+    // 마크 완료 수신
     chrome.runtime.onMessage.addListener(function (msg) {
-      if (msg.action === "markDone") {
-        showResult(msg.totalPages, msg.pageH);
-      }
+      if (msg.action === "markDone") showResult(msg.totalPages, msg.pageH);
     });
 
     // 미세 조정
@@ -67,7 +73,6 @@
         if (resp) showResult(resp.totalPages, resp.pageH);
       });
     }
-
     $("upBig").addEventListener("click", function () { adjust(-20); });
     $("upSmall").addEventListener("click", function () { adjust(-5); });
     $("downSmall").addEventListener("click", function () { adjust(5); });

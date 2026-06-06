@@ -1,10 +1,15 @@
 // content.js — Notion 프린트 페이지 미리보기 (popup 통신)
+// 핵심: 인쇄 너비 제한 + 블록 단위 페이지네이션 시뮬레이션
 (function () {
   "use strict";
 
   if (!/(^|\.)notion\.(so|com|site)$/.test(location.hostname)) return;
 
+  var MM = 96 / 25.4;
+  var PRINT_W = Math.round((210 - 20.32) * MM); // A4 - Chrome 기본 마진(0.4in*2) ≈ 718px
+
   var STYLE_ID = "fc-pp-style";
+  var CONSTRAIN_CLS = "fc-pp-constrained";
   var LINE_CLS = "fc-pp-line";
   var GUIDE_ID = "fc-pp-guide";
   var OVERLAY_ID = "fc-pp-overlay";
@@ -19,10 +24,10 @@
 
   // ── 이전 버전 잔여물 정리 ──
   function cleanupLegacy() {
-    var old = document.getElementById("fc-pp-toggle");
-    if (old) old.remove();
-    old = document.getElementById("fc-pp-panel");
-    if (old) old.remove();
+    ["fc-pp-toggle", "fc-pp-panel"].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.remove();
+    });
   }
 
   function savePageH(v) {
@@ -39,12 +44,15 @@
     var s = document.createElement("style");
     s.id = STYLE_ID;
     s.textContent = [
+      // 인쇄 너비 제한
+      "." + CONSTRAIN_CLS + " .notion-page-content{max-width:" + PRINT_W + "px!important;width:" + PRINT_W + "px!important}",
+      "." + CONSTRAIN_CLS + " .notion-page-content *{max-width:100%!important}",
+      // 라인
       "." + LINE_CLS + "{position:absolute;left:0;right:0;height:0;border-top:2px dashed rgba(231,76,60,.5);pointer-events:none;z-index:9998}",
       ".fc-pp-label{position:absolute;right:20px;transform:translateY(-50%);font-size:11px;font-weight:600;font-family:-apple-system,sans-serif;color:rgba(231,76,60,.75);background:rgba(255,255,255,.92);padding:2px 8px;border-radius:10px;white-space:nowrap;border:1px solid rgba(231,76,60,.2)}",
-      // 마크 모드 가이드 라인
+      // 마크 모드
       "#" + GUIDE_ID + "{position:fixed;left:0;right:0;height:0;border-top:2px solid rgba(231,76,60,.8);pointer-events:none;z-index:100000;display:none}",
       "#" + GUIDE_ID + ".active{display:block}",
-      // 마크 모드 오버레이
       "#" + OVERLAY_ID + "{position:fixed;top:0;left:0;right:0;bottom:0;z-index:99999;cursor:crosshair;display:none}",
       "#" + OVERLAY_ID + ".active{display:block}",
       "#" + OVERLAY_ID + " .fc-pp-msg{position:fixed;top:16px;left:50%;transform:translateX(-50%);background:#e74c3c;color:#fff;padding:10px 20px;border-radius:10px;font-family:-apple-system,sans-serif;font-size:14px;font-weight:600;box-shadow:0 4px 20px rgba(0,0,0,.25);white-space:nowrap}",
@@ -60,18 +68,98 @@
     return (pc && pc.closest(".notion-scroller")) || document.querySelector(".notion-scroller");
   }
 
-  function getContentHeight() {
-    var scroller = getScroller();
-    if (!scroller) return 0;
+  function ensurePositioned(scroller) {
     if (getComputedStyle(scroller).position === "static") {
       scroller.style.position = "relative";
     }
+  }
+
+  function getContentHeight() {
+    var scroller = getScroller();
+    if (!scroller) return 0;
+    ensurePositioned(scroller);
     var pc = document.querySelector(".notion-page-content");
     if (pc) return pc.offsetTop + pc.offsetHeight;
     return scroller.scrollHeight;
   }
 
-  // ── 라인 ──
+  // ── 너비 제한 ──
+  function constrainWidth() {
+    var scroller = getScroller();
+    if (scroller) scroller.classList.add(CONSTRAIN_CLS);
+  }
+  function restoreWidth() {
+    var scroller = getScroller();
+    if (scroller) scroller.classList.remove(CONSTRAIN_CLS);
+  }
+
+  // ── 블록 단위 페이지네이션 시뮬레이션 ──
+  function computePageBreaks(pageH) {
+    var scroller = getScroller();
+    var pc = document.querySelector(".notion-page-content");
+    if (!scroller || !pc || pageH < 50) return [];
+
+    ensurePositioned(scroller);
+    var scrollerRect = scroller.getBoundingClientRect();
+    var scrollTop = scroller.scrollTop;
+
+    var breaks = [];
+    var pageBottom = pageH; // 1페이지 끝
+
+    // .notion-page-content 의 직접 자식 = Notion 블록
+    var blocks = pc.children;
+    for (var i = 0; i < blocks.length; i++) {
+      var block = blocks[i];
+      if (block.classList.contains(LINE_CLS)) continue;
+
+      var rect = block.getBoundingClientRect();
+      var blockTop = rect.top - scrollerRect.top + scrollTop;
+      var blockH = rect.height;
+      var blockBottom = blockTop + blockH;
+
+      if (blockH < 1) continue; // 빈 블록 무시
+      if (blockBottom <= pageBottom) continue; // 현재 페이지에 들어감
+
+      if (blockTop >= pageBottom) {
+        // 블록이 페이지 경계 이후에 시작 → 페이지 넘기기
+        breaks.push(pageBottom);
+        pageBottom += pageH;
+        // 블록 시작까지 빈 페이지가 있으면 넘기기
+        while (pageBottom <= blockTop) {
+          breaks.push(pageBottom);
+          pageBottom += pageH;
+        }
+        // 이 페이지에 들어가는지 확인
+        if (blockBottom > pageBottom) {
+          if (blockH <= pageH) {
+            // 한 페이지에 들어가지만 현재 페이지엔 안 됨 → 다음으로
+            breaks.push(blockTop);
+            pageBottom = blockTop + pageH;
+          } else {
+            // 블록이 페이지보다 큼 → 페이지 경계에서 자르기
+            while (blockBottom > pageBottom) {
+              breaks.push(pageBottom);
+              pageBottom += pageH;
+            }
+          }
+        }
+      } else if (blockH <= pageH) {
+        // 블록이 현재 페이지에서 시작했지만 넘침 → 통째로 다음 페이지로
+        breaks.push(blockTop);
+        pageBottom = blockTop + pageH;
+      } else {
+        // 블록이 페이지보다 큼 → 페이지 경계에서 자르기
+        while (blockBottom > pageBottom) {
+          breaks.push(pageBottom);
+          pageBottom += pageH;
+        }
+      }
+    }
+
+    return breaks;
+  }
+
+  // ── 라인 그리기 ──
   function clearLines() {
     document.querySelectorAll("." + LINE_CLS).forEach(function (el) { el.remove(); });
   }
@@ -82,28 +170,24 @@
 
     var scroller = getScroller();
     if (!scroller) return 0;
+    ensurePositioned(scroller);
 
-    if (getComputedStyle(scroller).position === "static") {
-      scroller.style.position = "relative";
-    }
+    var breaks = computePageBreaks(calibratedPageH);
 
-    var contentH = getContentHeight();
-    var pages = Math.round(contentH / calibratedPageH);
-
-    for (var i = 1; i < pages; i++) {
+    for (var i = 0; i < breaks.length; i++) {
       var line = document.createElement("div");
       line.className = LINE_CLS;
-      line.style.top = (i * calibratedPageH) + "px";
+      line.style.top = breaks[i] + "px";
 
       var label = document.createElement("span");
       label.className = "fc-pp-label";
-      label.textContent = i + " / " + (i + 1) + " 페이지";
+      label.textContent = (i + 1) + " / " + (i + 2) + " 페이지";
       line.appendChild(label);
 
       scroller.appendChild(line);
     }
 
-    return pages;
+    return breaks.length + 1;
   }
 
   function scheduleRedraw() {
@@ -167,9 +251,26 @@
     var scroller = getScroller();
     if (!scroller) { exitMarkMode(); return; }
 
-    // 클릭 위치 → scroller 내 절대 위치
     var scrollerRect = scroller.getBoundingClientRect();
     var clickY = e.clientY - scrollerRect.top + scroller.scrollTop;
+
+    // 클릭 위치 근처의 블록 경계를 찾아서 스냅
+    var pc = document.querySelector(".notion-page-content");
+    if (pc) {
+      var bestSnap = clickY;
+      var bestDist = 30; // 30px 이내에서 스냅
+      var blocks = pc.children;
+      for (var i = 0; i < blocks.length; i++) {
+        var rect = blocks[i].getBoundingClientRect();
+        var blockBottom = rect.bottom - scrollerRect.top + scroller.scrollTop;
+        var dist = Math.abs(blockBottom - clickY);
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestSnap = blockBottom;
+        }
+      }
+      clickY = bestSnap;
+    }
 
     calibratedPageH = Math.round(clickY);
     if (calibratedPageH < 50) calibratedPageH = 50;
@@ -180,7 +281,6 @@
     startObserving();
     exitMarkMode();
 
-    // 팝업에 결과 전달 (팝업이 열려있으면)
     try {
       chrome.runtime.sendMessage({
         action: "markDone",
@@ -192,6 +292,26 @@
 
   function onMarkKeydown(e) {
     if (e.key === "Escape") exitMarkMode();
+  }
+
+  // ── 캘리브레이션 (페이지 수 입력) ──
+  function calibrate(actualPageCount, callback) {
+    var scroller = getScroller();
+    if (!scroller || actualPageCount < 1) {
+      if (callback) callback(0, 0);
+      return;
+    }
+    constrainWidth();
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        var contentH = getContentHeight();
+        calibratedPageH = Math.round(contentH / actualPageCount);
+        savePageH(calibratedPageH);
+        var pages = drawLines();
+        startObserving();
+        if (callback) callback(pages, calibratedPageH);
+      });
+    });
   }
 
   // ── 옵저버 ──
@@ -221,13 +341,16 @@
   // ── 활성화/비활성화 ──
   function activate(callback) {
     active = true;
+    constrainWidth();
     requestAnimationFrame(function () {
-      var pages = 0;
-      if (calibratedPageH) {
-        pages = drawLines();
-        startObserving();
-      }
-      if (callback) callback(pages);
+      requestAnimationFrame(function () {
+        var pages = 0;
+        if (calibratedPageH) {
+          pages = drawLines();
+          startObserving();
+        }
+        if (callback) callback(pages);
+      });
     });
   }
 
@@ -235,6 +358,7 @@
     active = false;
     stopObserving();
     clearLines();
+    restoreWidth();
     if (markMode) exitMarkMode();
   }
 
@@ -244,7 +368,7 @@
       sendResponse({
         active: active,
         pageH: calibratedPageH,
-        totalPages: calibratedPageH ? Math.round(getContentHeight() / calibratedPageH) : null
+        totalPages: calibratedPageH ? drawLines() : null
       });
     } else if (msg.action === "activate") {
       activate(function (pages) {
@@ -255,8 +379,20 @@
       deactivate();
       sendResponse({ ok: true });
     } else if (msg.action === "enterMarkMode") {
-      enterMarkMode();
-      sendResponse({ ok: true });
+      // 마크 모드 진입 전 너비 제한
+      constrainWidth();
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          enterMarkMode();
+          sendResponse({ ok: true });
+        });
+      });
+      return true;
+    } else if (msg.action === "calibrate") {
+      calibrate(msg.pageCount, function (totalPages, pageH) {
+        sendResponse({ totalPages: totalPages, pageH: pageH });
+      });
+      return true;
     } else if (msg.action === "adjustPageH") {
       if (calibratedPageH) {
         calibratedPageH = Math.max(50, calibratedPageH + msg.delta);
@@ -285,8 +421,13 @@
       lastUrl = location.href;
       setTimeout(function () {
         cleanupLegacy();
-        if (active && calibratedPageH) {
-          requestAnimationFrame(drawLines);
+        if (active) {
+          constrainWidth();
+          if (calibratedPageH) {
+            requestAnimationFrame(function () {
+              requestAnimationFrame(drawLines);
+            });
+          }
         }
       }, 1000);
     }
