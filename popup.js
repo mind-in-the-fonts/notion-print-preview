@@ -1,4 +1,4 @@
-// popup.js — 팝업 UI ↔ content script 통신
+// popup.js — 토글만으로 미리보기 ON/OFF
 (function () {
   "use strict";
 
@@ -34,7 +34,7 @@
       updateUI(state.active);
     });
 
-    // 토글
+    // 토글 — 켜면 자동으로 구분선 계산 & 표시
     $("toggle").addEventListener("change", function () {
       var on = $("toggle").checked;
       sendToTab(tabId, { action: on ? "activate" : "deactivate" }, function (resp) {
@@ -43,36 +43,12 @@
       });
     });
 
-    // 페이지 수 입력
-    function apply() {
-      var v = parseInt($("pageCount").value, 10);
-      if (!v || v < 1) return;
-      sendToTab(tabId, { action: "calibrate", pageCount: v }, function (resp) {
-        if (resp && resp.totalPages) showResult(resp.totalPages);
-      });
-    }
-    $("applyBtn").addEventListener("click", apply);
-    $("pageCount").addEventListener("keydown", function (e) {
-      if (e.key === "Enter") apply();
-    });
-
-    // 클릭으로 위치 지정
-    $("markBtn").addEventListener("click", function () {
-      sendToTab(tabId, { action: "enterMarkMode" });
-      window.close();
-    });
-
-    // 마크 완료 수신
-    chrome.runtime.onMessage.addListener(function (msg) {
-      if (msg.action === "markDone") showResult(msg.totalPages);
-    });
-
     function showResult(totalPages) {
-      $("status").textContent = "미리보기: 총 " + totalPages + "페이지";
+      $("status").textContent = "총 " + totalPages + "페이지";
+      $("status").classList.add("show");
     }
 
     function updateUI(on) {
-      $("main").classList.toggle("disabled", !on);
       $("dot").classList.toggle("off", !on);
       $("footerText").textContent = on ? "미리보기 활성화됨" : "미리보기 꺼짐";
     }
