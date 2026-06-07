@@ -1,17 +1,61 @@
 // content.js — Notion 프린트 페이지 미리보기
-// 토글 ON → 자동으로 A4 페이지 구분선 표시
+// Chrome 인쇄와 동일한 블록 단위 페이지 나눔 시뮬레이션
 (function () {
   "use strict";
 
   if (!/(^|\.)notion\.(so|com|site)$/.test(location.hostname)) return;
 
-  // ── A4 용지 계산 ──
-  // Chrome 기본 마진: 상하좌우 약 0.4in (10.16mm)
-  // A4: 210mm × 297mm
-  // 인쇄 콘텐츠 영역 = 용지 - 마진*2
+  // ── A4 인쇄 설정 ──
+  // Notion CSS: @page { margin: 20mm 0px } → 이 값이 Chrome 인쇄에 적용됨
+  // A4: 210mm × 297mm, 96 DPI 기준 CSS px 변환
   var MM2PX = 96 / 25.4;
-  var PRINT_W = Math.round((210 - 20.32) * MM2PX);  // ≈ 718px
-  var PRINT_H = Math.round((297 - 20.32) * MM2PX);  // ≈ 1046px
+  var A4_W = Math.round(210 * MM2PX);  // 794px
+  var A4_H = Math.round(297 * MM2PX);  // 1123px
+
+  // @page CSS에서 마진 감지
+  function getPageMargins() {
+    var margins = { top: 0, right: 0, bottom: 0, left: 0 };
+    try {
+      for (var i = 0; i < document.styleSheets.length; i++) {
+        var sheet = document.styleSheets[i];
+        try {
+          for (var j = 0; j < sheet.cssRules.length; j++) {
+            var rule = sheet.cssRules[j];
+            if (rule.type === CSSRule.PAGE_RULE && rule.style) {
+              var mt = rule.style.marginTop || rule.style.getPropertyValue("margin-top");
+              var mr = rule.style.marginRight || rule.style.getPropertyValue("margin-right");
+              var mb = rule.style.marginBottom || rule.style.getPropertyValue("margin-bottom");
+              var ml = rule.style.marginLeft || rule.style.getPropertyValue("margin-left");
+              if (mt) margins.top = parseMarginValue(mt);
+              if (mr) margins.right = parseMarginValue(mr);
+              if (mb) margins.bottom = parseMarginValue(mb);
+              if (ml) margins.left = parseMarginValue(ml);
+            }
+          }
+        } catch (e) { /* cross-origin */ }
+      }
+    } catch (e) {}
+    return margins;
+  }
+
+  function parseMarginValue(val) {
+    if (!val || val === "0" || val === "0px") return 0;
+    var n = parseFloat(val);
+    if (isNaN(n)) return 0;
+    if (val.indexOf("mm") > -1) return Math.round(n * MM2PX);
+    if (val.indexOf("in") > -1) return Math.round(n * 96);
+    if (val.indexOf("cm") > -1) return Math.round(n * MM2PX * 10);
+    if (val.indexOf("pt") > -1) return Math.round(n * 96 / 72);
+    return Math.round(n); // px
+  }
+
+  function getPrintDimensions() {
+    var m = getPageMargins();
+    return {
+      w: A4_W - m.left - m.right,
+      h: A4_H - m.top - m.bottom
+    };
+  }
 
   var STYLE_ID = "fc-pp-style";
   var LINE_CLS = "fc-pp-line";
@@ -55,144 +99,112 @@
     }
   }
 
+
   // ── 페이지 구분선 계산 ──
-  // 콘텐츠를 인쇄 너비(718px)로 복제 → A4 한 페이지 높이(1046px)마다 끊기
   function computeBreaks() {
     var pc = document.querySelector(".notion-page-content");
     var scroller = getScroller();
     if (!pc || !scroller) return [];
 
     ensurePositioned(scroller);
-    var scrollerRect = scroller.getBoundingClientRect();
-    var scrollTop = scroller.scrollTop;
 
-    // 1) 인쇄 너비로 콘텐츠 복제
-    var container = document.createElement("div");
-    container.style.cssText =
-      "position:fixed;left:-99999px;top:0;width:" + PRINT_W + "px;" +
-      "visibility:hidden;overflow:visible;pointer-events:none;z-index:-1";
+    // @page CSS에서 인쇄 영역 크기 계산
+    var dims = getPrintDimensions();
+    var PRINT_W = dims.w;
+    var PRINT_H = dims.h;
 
-    var clone = pc.cloneNode(true);
-    clone.querySelectorAll("." + LINE_CLS).forEach(function (el) { el.remove(); });
-    clone.style.cssText =
-      "width:" + PRINT_W + "px!important;max-width:none!important;" +
-      "min-width:0!important;padding:0!important;margin:0!important;position:relative";
+    // notion-frame을 클론하여 원본 부모에 삽입 (CSS 컨텍스트 완전 보존)
+    var frame = scroller.closest(".notion-frame") || scroller.parentElement;
 
-    container.appendChild(clone);
-    document.body.appendChild(container);
-    void container.offsetHeight; // 강제 레이아웃
+    var frameClone = frame.cloneNode(true);
+    frameClone.style.cssText =
+      "position:fixed;left:-99999px;top:0;width:" + PRINT_W + "px;max-width:" + PRINT_W + "px;" +
+      "visibility:hidden;overflow:visible;pointer-events:none;z-index:-1;height:auto;";
 
-    var cloneH = clone.scrollHeight;
-
-    if (cloneH < 100) {
-      document.body.removeChild(container);
-      return computeBreaksSimple();
+    var scrollerClone = frameClone.querySelector(".notion-scroller");
+    if (scrollerClone) {
+      scrollerClone.style.width = PRINT_W + "px";
+      scrollerClone.style.maxWidth = PRINT_W + "px";
+      scrollerClone.style.overflow = "visible";
+      scrollerClone.style.height = "auto";
     }
 
-    // 2) A4 한 페이지 높이(1046px)마다 끊기
-    var pageCount = Math.ceil(cloneH / PRINT_H);
-    if (pageCount < 2) {
-      document.body.removeChild(container);
+    // 기존 페이지 구분선 제거
+    frameClone.querySelectorAll("." + LINE_CLS).forEach(function (el) { el.remove(); });
+
+    // 원본 부모에 삽입하여 CSS 셀렉터 컨텍스트 보존
+    frame.parentElement.appendChild(frameClone);
+    void frameClone.offsetHeight; // 강제 레이아웃
+
+    var clonePC = frameClone.querySelector(".notion-page-content");
+    if (!clonePC) {
+      frame.parentElement.removeChild(frameClone);
       return [];
     }
 
-    // 3) 블록 요소 수집
-    var cloneBlocks = Array.from(clone.querySelectorAll("[data-block-id]"));
-    var cloneRect = clone.getBoundingClientRect();
+    var cloneChildren = Array.from(clonePC.children).filter(function (el) {
+      return !el.classList.contains(LINE_CLS);
+    });
+    var origChildren = Array.from(pc.children).filter(function (el) {
+      return !el.classList.contains(LINE_CLS);
+    });
 
-    if (cloneBlocks.length === 0) {
-      document.body.removeChild(container);
-      return computeBreaksSimple();
+    if (cloneChildren.length === 0) {
+      frame.parentElement.removeChild(frameClone);
+      return [];
     }
 
-    var blockInfos = cloneBlocks.map(function (el) {
+    // 프레임 기준 블록 위치 측정 (Chrome 인쇄 엔진과 동일)
+    var cloneFrameRect = frameClone.getBoundingClientRect();
+    var blocks = cloneChildren.map(function (el) {
       var r = el.getBoundingClientRect();
       return {
-        id: el.getAttribute("data-block-id"),
-        top: r.top - cloneRect.top,
-        bottom: r.bottom - cloneRect.top,
+        top: r.top - cloneFrameRect.top,
+        bottom: r.top - cloneFrameRect.top + r.height,
         height: r.height
       };
     });
 
-    // 4) 각 페이지 경계에서 블록 스냅 → 화면 좌표 매핑
-    var breaks = [];
-
-    for (var p = 1; p < pageCount; p++) {
-      var breakY = PRINT_H * p;
-      var bestBlockId = null;
-
-      for (var j = 0; j < blockInfos.length; j++) {
-        var bi = blockInfos[j];
-
-        // break가 블록 내부를 자르는 경우
-        if (breakY > bi.top + 2 && breakY < bi.bottom - 2) {
-          if (bi.height <= PRINT_H * 0.9) {
-            bestBlockId = bi.id;
+    // Chrome 인쇄 페이지 나눔 시뮬레이션
+    // 블록이 페이지 경계에 걸리면: 한 페이지에 들어가는 블록은 다음 페이지로 이동
+    var breakIndices = [];
+    var pageEnd = PRINT_H;
+    for (var i = 0; i < blocks.length; i++) {
+      var b = blocks[i];
+      if (b.height <= 0) continue;
+      if (b.top < pageEnd && b.bottom > pageEnd) {
+        if (b.height <= PRINT_H) {
+          // 블록이 한 페이지에 들어감 → 다음 페이지로 통째로 이동
+          breakIndices.push(i);
+          pageEnd = b.top + PRINT_H;
+        } else {
+          // 블록이 한 페이지보다 큼 → 잘라서 넘김
+          breakIndices.push(i);
+          var ns = pageEnd;
+          pageEnd = ns + PRINT_H;
+          while (b.bottom > pageEnd) {
+            pageEnd += PRINT_H;
           }
-          break;
-        }
-
-        // break가 블록 위에 있는 경우 (블록 시작이 break 이후)
-        if (bi.top >= breakY) {
-          bestBlockId = bi.id;
-          break;
         }
       }
-
-      // 화면 좌표로 매핑
-      if (bestBlockId) {
-        var origEl = pc.querySelector("[data-block-id='" + bestBlockId + "']");
-        if (origEl) {
-          var origRect = origEl.getBoundingClientRect();
-          breaks.push(Math.round(origRect.top - scrollerRect.top + scrollTop));
-          continue;
-        }
-      }
-
-      // 폴백: 비율 매핑
-      var ratio = breakY / cloneH;
-      var pcRect = pc.getBoundingClientRect();
-      breaks.push(Math.round(
-        (pcRect.top - scrollerRect.top + scrollTop) + pcRect.height * ratio
-      ));
     }
 
-    document.body.removeChild(container);
-    return dedup(breaks);
-  }
-
-  // 폴백: 균등 분할
-  function computeBreaksSimple() {
-    var pc = document.querySelector(".notion-page-content");
-    var scroller = getScroller();
-    if (!pc || !scroller) return [];
-
-    ensurePositioned(scroller);
+    // 원본 DOM의 화면 좌표로 매핑
     var scrollerRect = scroller.getBoundingClientRect();
     var scrollTop = scroller.scrollTop;
-    var pcRect = pc.getBoundingClientRect();
-    var pcTop = pcRect.top - scrollerRect.top + scrollTop;
-    var pageCount = Math.max(Math.ceil(pc.offsetHeight / PRINT_H), 2);
-    var pageH = pc.offsetHeight / pageCount;
 
     var breaks = [];
-    for (var p = 1; p < pageCount; p++) {
-      breaks.push(Math.round(pcTop + pageH * p));
-    }
-    return breaks;
-  }
-
-  function dedup(breaks) {
-    var result = [];
-    var prev = -Infinity;
-    for (var i = 0; i < breaks.length; i++) {
-      if (breaks[i] > prev + 30) {
-        result.push(breaks[i]);
-        prev = breaks[i];
+    for (var i = 0; i < breakIndices.length; i++) {
+      var idx = breakIndices[i];
+      if (idx < origChildren.length) {
+        var rect = origChildren[idx].getBoundingClientRect();
+        breaks.push(Math.round(rect.top - scrollerRect.top + scrollTop));
       }
     }
-    return result;
+
+    // 정리
+    frame.parentElement.removeChild(frameClone);
+    return breaks;
   }
 
   // ── 라인 그리기 ──
