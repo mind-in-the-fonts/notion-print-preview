@@ -1,22 +1,29 @@
-// content.js — Notion 프린트 페이지 미리보기 (popup 통신)
-// 핵심: 인쇄 너비로 복제 → 측정 → 블록 매핑으로 화면 위치 계산
+// content.js — Notion 프린트 페이지 미리보기
+// A4 용지 기준 페이지 구분선 표시
 (function () {
   "use strict";
 
   if (!/(^|\.)notion\.(so|com|site)$/.test(location.hostname)) return;
 
-  var MM = 96 / 25.4;
-  var PRINT_W = Math.round((210 - 20.32) * MM); // A4 - Chrome 기본마진(0.4in*2) ≈ 718px
+  // ── A4 용지 계산 ──
+  // Chrome 기본 마진: 상하좌우 약 0.4in(10.16mm)
+  // A4: 210mm × 297mm
+  // 인쇄 콘텐츠 영역: (210 - 20.32)mm × (297 - 20.32)mm
+  // CSS px = mm × 96/25.4
+  var MM2PX = 96 / 25.4;
+  var PRINT_CONTENT_W = Math.round((210 - 20.32) * MM2PX); // ≈ 718px
+  var PRINT_CONTENT_H = Math.round((297 - 20.32) * MM2PX); // ≈ 1046px (한 페이지 높이)
 
   var STYLE_ID = "fc-pp-style";
   var LINE_CLS = "fc-pp-line";
   var GUIDE_ID = "fc-pp-guide";
   var OVERLAY_ID = "fc-pp-overlay";
-  var STORAGE_KEY = "fc-pp-breaks";
+  var STORAGE_KEY = "fc-pp-data";
 
   var active = false;
   var markMode = false;
-  var cachedBreaks = null; // 화면 좌표 기준 break 위치 배열
+  var cachedBreaks = null;
+  var cachedPageCount = null;
   var timer = null;
   var rObs = null;
   var mObs = null;
@@ -29,12 +36,16 @@
     });
   }
 
-  function saveBreaks(arr) {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(arr)); } catch (e) {}
+  function saveData(pageCount, breaks) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ pageCount: pageCount, breaks: breaks }));
+    } catch (e) {}
   }
-  function loadBreaks() {
-    try { var v = localStorage.getItem(STORAGE_KEY); return v ? JSON.parse(v) : null; }
-    catch (e) { return null; }
+  function loadData() {
+    try {
+      var v = localStorage.getItem(STORAGE_KEY);
+      return v ? JSON.parse(v) : null;
+    } catch (e) { return null; }
   }
 
   // ── CSS ──
@@ -68,145 +79,161 @@
     }
   }
 
-  // ── 핵심: 인쇄 너비 복제 → 블록 매핑 ──
-  function computeBreaksViaClone(pageCount) {
+  // ── 페이지 구분선 계산 ──
+  // 방법: 콘텐츠를 인쇄 너비(718px)로 복제 → 복제본 높이 측정 →
+  //        A4 한 페이지 높이(1046px)로 나눠서 페이지 경계 계산 →
+  //        블록 경계에 스냅 → 원본 화면 좌표로 매핑
+  function computeBreaks(pageCount) {
     var pc = document.querySelector(".notion-page-content");
     var scroller = getScroller();
     if (!pc || !scroller || pageCount < 2) return [];
 
     ensurePositioned(scroller);
+    var scrollerRect = scroller.getBoundingClientRect();
+    var scrollTop = scroller.scrollTop;
 
     // 1) 인쇄 너비로 콘텐츠 복제
     var container = document.createElement("div");
-    container.style.cssText = "position:absolute;left:-9999px;top:0;width:" + PRINT_W + "px;visibility:hidden;overflow:hidden;pointer-events:none";
+    container.style.cssText =
+      "position:fixed;left:-99999px;top:0;width:" + PRINT_CONTENT_W + "px;" +
+      "visibility:hidden;overflow:visible;pointer-events:none;z-index:-1";
     var clone = pc.cloneNode(true);
+    // 기존 구분선 제거
     clone.querySelectorAll("." + LINE_CLS).forEach(function (el) { el.remove(); });
-    clone.style.cssText = "width:100%!important;max-width:100%!important;position:relative";
+    // Notion의 max-width 제한 해제 → 718px 폭에 맞게 리플로우
+    clone.style.cssText =
+      "width:" + PRINT_CONTENT_W + "px!important;max-width:none!important;" +
+      "min-width:0!important;padding:0!important;margin:0!important;position:relative";
+    // 내부 콘텐츠 max-width도 해제
+    clone.querySelectorAll("*").forEach(function (el) {
+      if (el.style) {
+        el.style.maxWidth = "none";
+        el.style.minWidth = "0";
+      }
+    });
     container.appendChild(clone);
     document.body.appendChild(container);
-    void container.offsetHeight; // force layout
+
+    // 강제 레이아웃
+    void container.offsetHeight;
 
     var cloneH = clone.scrollHeight;
-    var printPageH = cloneH / pageCount;
 
-    // 2) 복제본에서 블록 요소 수집 (data-block-id 기반, 최상위만)
-    // 중첩 블록 제외: 부모도 data-block-id가 있으면 자식은 제외
-    function getTopLevelBlocks(root) {
-      var all = Array.from(root.querySelectorAll("[data-block-id]"));
-      return all.filter(function (el) {
-        var parent = el.parentElement;
-        while (parent && parent !== root) {
-          if (parent.hasAttribute("data-block-id")) return false;
-          parent = parent.parentElement;
-        }
-        return true;
-      });
+    // 클론이 제대로 렌더링되지 않으면 폴백
+    if (cloneH < 100) {
+      document.body.removeChild(container);
+      return computeBreaksSimple(pageCount);
     }
 
-    var cloneBlockEls = getTopLevelBlocks(clone);
-
-    // data-block-id가 없으면 직접 자식 사용
-    var useBlockId = cloneBlockEls.length > 0;
-    if (!useBlockId) {
-      cloneBlockEls = Array.from(clone.children).filter(function (el) {
-        return !el.classList.contains(LINE_CLS) && el.offsetHeight > 0;
-      });
-    }
-
-    // block-id → 원본 요소 맵 (빠른 조회)
-    var origBlockMap = {};
-    if (useBlockId) {
-      getTopLevelBlocks(pc).forEach(function (el) {
-        origBlockMap[el.getAttribute("data-block-id")] = el;
-      });
-    } else {
-      var origChildren = Array.from(pc.children).filter(function (el) {
-        return !el.classList.contains(LINE_CLS) && el.offsetHeight > 0;
-      });
-    }
-
-    // 3) 복제본 블록 위치 측정
+    // 2) 블록 요소 수집 (data-block-id 사용)
+    var cloneBlocks = Array.from(clone.querySelectorAll("[data-block-id]"));
     var cloneRect = clone.getBoundingClientRect();
-    var cloneBlocks = cloneBlockEls.map(function (el, idx) {
+
+    // data-block-id가 없으면 폴백
+    if (cloneBlocks.length === 0) {
+      document.body.removeChild(container);
+      return computeBreaksSimple(pageCount);
+    }
+
+    // 복제본 블록 위치 측정 + ID 기록
+    var blockInfos = cloneBlocks.map(function (el) {
       var r = el.getBoundingClientRect();
       return {
+        id: el.getAttribute("data-block-id"),
         top: r.top - cloneRect.top,
         bottom: r.bottom - cloneRect.top,
-        height: r.height,
-        blockId: useBlockId ? el.getAttribute("data-block-id") : null,
-        idx: idx
+        height: r.height
       };
     });
 
-    // 4) 각 페이지 break 위치 → 가장 가까운 블록 경계 찾기 → 화면 위치로 매핑
-    var scrollerRect = scroller.getBoundingClientRect();
-    var scrollTop = scroller.scrollTop;
+    // 3) 페이지 경계 계산 — A4 한 페이지 콘텐츠 높이(1046px) 기준
+    // 사용자가 입력한 pageCount로 검증: cloneH / PRINT_CONTENT_H ≈ pageCount
+    // 실제로는 pageCount를 신뢰 (유저가 Cmd+P로 확인한 값이므로)
+    var printPageH = cloneH / pageCount;
     var breaks = [];
 
     for (var p = 1; p < pageCount; p++) {
       var breakY = printPageH * p;
 
-      // breakY를 넘는 첫 번째 블록 찾기 (= 다음 페이지 시작 블록)
-      var nextPageBlockIdx = -1;
-      for (var j = 0; j < cloneBlocks.length; j++) {
-        var cb = cloneBlocks[j];
-        if (cb.top >= breakY - 2) {
-          // 이 블록은 이미 breakY 이후 → 이 블록부터 다음 페이지
-          nextPageBlockIdx = j;
+      // breakY 위치에서 가장 가까운 블록 경계 찾기
+      var bestBlockId = null;
+      var bestSnap = breakY;
+
+      for (var j = 0; j < blockInfos.length; j++) {
+        var bi = blockInfos[j];
+
+        // break가 블록 내부를 자르는 경우 → 블록 TOP으로 스냅 (다음 페이지로 밀기)
+        if (breakY > bi.top + 2 && breakY < bi.bottom - 2) {
+          if (bi.height <= printPageH * 0.9) {
+            bestBlockId = bi.id;
+            bestSnap = bi.top;
+          }
           break;
         }
-        if (breakY > cb.top + 2 && breakY < cb.bottom - 2) {
-          // break가 블록 내부를 자름
-          if (cb.height <= printPageH) {
-            // 블록이 한 페이지에 들어감 → 블록을 다음 페이지로 밀기
-            nextPageBlockIdx = j;
-          } else {
-            // 블록이 한 페이지보다 큼 → 자를 수밖에 없음, 다음 블록부터
-            nextPageBlockIdx = j + 1;
-          }
+
+        // break가 블록 사이에 있는 경우
+        if (bi.top >= breakY) {
+          bestBlockId = bi.id;
+          bestSnap = bi.top;
           break;
         }
       }
 
       // 화면 좌표로 매핑
-      var origEl = null;
-      if (nextPageBlockIdx >= 0 && nextPageBlockIdx < cloneBlocks.length) {
-        var blk = cloneBlocks[nextPageBlockIdx];
-        if (useBlockId && blk.blockId) {
-          origEl = origBlockMap[blk.blockId];
-        } else if (!useBlockId && nextPageBlockIdx < origChildren.length) {
-          origEl = origChildren[nextPageBlockIdx];
+      if (bestBlockId) {
+        var origEl = pc.querySelector("[data-block-id='" + bestBlockId + "']");
+        if (origEl) {
+          var origRect = origEl.getBoundingClientRect();
+          breaks.push(Math.round(origRect.top - scrollerRect.top + scrollTop));
+          continue;
         }
       }
 
-      if (origEl) {
-        var origRect = origEl.getBoundingClientRect();
-        var screenY = Math.round(origRect.top - scrollerRect.top + scrollTop);
-        breaks.push(screenY);
-      } else {
-        // 폴백: 비율 기반
-        var ratio = breakY / cloneH;
-        var pcRect = pc.getBoundingClientRect();
-        var pcTop = pcRect.top - scrollerRect.top + scrollTop;
-        var pcH = pcRect.height;
-        breaks.push(Math.round(pcTop + pcH * ratio));
-      }
+      // 폴백: 비율로 매핑
+      var ratio = bestSnap / cloneH;
+      var pcRect = pc.getBoundingClientRect();
+      breaks.push(Math.round(
+        (pcRect.top - scrollerRect.top + scrollTop) + pcRect.height * ratio
+      ));
     }
 
-    // 정리
     document.body.removeChild(container);
 
-    // 중복/역순 제거
-    var filtered = [];
-    var prev = 0;
-    for (var f = 0; f < breaks.length; f++) {
-      if (breaks[f] > prev + 30) {
-        filtered.push(breaks[f]);
-        prev = breaks[f];
+    // 중복/너무 가까운 라인 제거
+    return dedup(breaks);
+  }
+
+  // 단순 폴백: 콘텐츠 높이 ÷ 페이지 수
+  function computeBreaksSimple(pageCount) {
+    var pc = document.querySelector(".notion-page-content");
+    var scroller = getScroller();
+    if (!pc || !scroller || pageCount < 2) return [];
+
+    ensurePositioned(scroller);
+    var scrollerRect = scroller.getBoundingClientRect();
+    var scrollTop = scroller.scrollTop;
+    var pcRect = pc.getBoundingClientRect();
+    var pcTop = pcRect.top - scrollerRect.top + scrollTop;
+    var contentH = pc.offsetHeight;
+    var pageH = contentH / pageCount;
+
+    var breaks = [];
+    for (var p = 1; p < pageCount; p++) {
+      breaks.push(Math.round(pcTop + pageH * p));
+    }
+    return breaks;
+  }
+
+  function dedup(breaks) {
+    var result = [];
+    var prev = -Infinity;
+    for (var i = 0; i < breaks.length; i++) {
+      if (breaks[i] > prev + 30) {
+        result.push(breaks[i]);
+        prev = breaks[i];
       }
     }
-
-    return filtered;
+    return result;
   }
 
   // ── 라인 그리기 ──
@@ -241,22 +268,27 @@
   function scheduleRedraw() {
     clearTimeout(timer);
     timer = setTimeout(function () {
-      if (active && cachedBreaks) drawLines();
-    }, 400);
+      if (active && cachedPageCount) {
+        cachedBreaks = computeBreaks(cachedPageCount);
+        drawLines();
+      }
+    }, 500);
   }
 
-  // ── 캘리브레이션 (페이지 수 입력) ──
+  // ── 캘리브레이션 ──
   function calibrate(pageCount, callback) {
     if (pageCount < 2) {
       if (callback) callback(0);
       return;
     }
 
-    // rAF 대기 후 clone 측정
+    active = true;
+    cachedPageCount = pageCount;
+
     requestAnimationFrame(function () {
       requestAnimationFrame(function () {
-        cachedBreaks = computeBreaksViaClone(pageCount);
-        saveBreaks(cachedBreaks);
+        cachedBreaks = computeBreaks(pageCount);
+        saveData(pageCount, cachedBreaks);
         var pages = drawLines();
         startObserving();
         if (callback) callback(pages);
@@ -316,43 +348,22 @@
 
   function onMarkClick(e) {
     var scroller = getScroller();
-    if (!scroller) { exitMarkMode(); return; }
+    var pc = document.querySelector(".notion-page-content");
+    if (!scroller || !pc) { exitMarkMode(); return; }
 
     var scrollerRect = scroller.getBoundingClientRect();
     var clickY = e.clientY - scrollerRect.top + scroller.scrollTop;
+    var pageH = Math.max(clickY, 50);
+    var contentH = pc.offsetHeight;
+    var estimatedPages = Math.max(Math.round(contentH / pageH), 2);
 
-    // 간단한 pageH 기반 → drawLines (폴백)
-    var pageH = Math.round(clickY);
-    if (pageH < 50) pageH = 50;
+    calibrate(estimatedPages, function (pages) {
+      try {
+        chrome.runtime.sendMessage({ action: "markDone", totalPages: pages });
+      } catch (ex) {}
+    });
 
-    // 콘텐츠 높이로 페이지 수 추정
-    var pc = document.querySelector(".notion-page-content");
-    if (pc) {
-      var pcH = pc.offsetTop + pc.offsetHeight;
-      var estimatedPages = Math.round(pcH / pageH);
-      if (estimatedPages >= 2) {
-        cachedBreaks = computeBreaksViaClone(estimatedPages);
-      }
-    }
-
-    if (!cachedBreaks || cachedBreaks.length === 0) {
-      // 폴백: 고정 간격
-      cachedBreaks = [];
-      var contentH = pc ? pc.offsetTop + pc.offsetHeight : scroller.scrollHeight;
-      for (var i = pageH; i < contentH - 50; i += pageH) {
-        cachedBreaks.push(i);
-      }
-    }
-
-    saveBreaks(cachedBreaks);
-    active = true;
-    var pages = drawLines();
-    startObserving();
     exitMarkMode();
-
-    try {
-      chrome.runtime.sendMessage({ action: "markDone", totalPages: pages });
-    } catch (e) {}
   }
 
   function onMarkKeydown(e) {
@@ -386,6 +397,7 @@
   // ── 활성화/비활성화 ──
   function activate(callback) {
     active = true;
+    ensureStyle();
     requestAnimationFrame(function () {
       var pages = 0;
       if (cachedBreaks && cachedBreaks.length > 0) {
@@ -431,25 +443,31 @@
   });
 
   // ── 초기화 ──
-  cachedBreaks = loadBreaks();
   ensureStyle();
   cleanupLegacy();
+
+  // 이전 데이터 복원
+  var saved = loadData();
+  if (saved) {
+    cachedPageCount = saved.pageCount;
+    cachedBreaks = saved.breaks;
+  }
+
+  // 레거시 정리 (이전 버전 떠있는 UI 제거)
   var cleanCount = 0;
   var cleanTimer = setInterval(function () {
     cleanupLegacy();
     if (++cleanCount >= 10) clearInterval(cleanTimer);
   }, 1000);
 
+  // SPA 네비게이션 감지
   var lastUrl = location.href;
   new MutationObserver(function () {
     if (location.href !== lastUrl) {
       lastUrl = location.href;
-      setTimeout(function () {
-        cleanupLegacy();
-        if (active && cachedBreaks) {
-          requestAnimationFrame(drawLines);
-        }
-      }, 1000);
+      cachedBreaks = null;
+      cachedPageCount = null;
+      clearLines();
     }
   }).observe(document.documentElement, { childList: true, subtree: true });
 })();
