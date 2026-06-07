@@ -166,12 +166,17 @@
     });
 
     // Chrome 인쇄 페이지 나눔 시뮬레이션
-    // 블록이 페이지 경계에 걸리면: 한 페이지에 들어가는 블록은 다음 페이지로 이동
+    // 1) 블록이 페이지 경계에 걸리면: 한 페이지에 들어가는 블록은 다음 페이지로 이동
+    // 2) 블록이 페이지 경계를 완전히 넘어가면: 빈 공간에서 페이지가 나뉜 것
     var breakIndices = [];
     var pageEnd = PRINT_H;
     for (var i = 0; i < blocks.length; i++) {
       var b = blocks[i];
       if (b.height <= 0) continue;
+      // 블록이 페이지 경계를 완전히 넘어감 (이전 블록과의 빈 공간에서 나뉨)
+      while (b.top >= pageEnd) {
+        pageEnd += PRINT_H;
+      }
       if (b.top < pageEnd && b.bottom > pageEnd) {
         if (b.height <= PRINT_H) {
           // 블록이 한 페이지에 들어감 → 다음 페이지로 통째로 이동
