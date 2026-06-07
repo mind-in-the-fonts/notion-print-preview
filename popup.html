@@ -75,19 +75,6 @@
       min-height: 18px; margin-top: 10px;
     }
 
-    .adjust { display: none; margin-top: 10px; padding-top: 10px; border-top: 1px solid #f0f0f0; }
-    .adjust.show { display: block; }
-    .adjust-label { font-size: 11.5px; color: #999; margin-bottom: 6px; }
-    .adjust-row { display: flex; align-items: center; gap: 6px; }
-    .adj-btn {
-      width: 32px; height: 28px; font-size: 14px; font-weight: 700;
-      border: 1px solid #ddd; border-radius: 6px; cursor: pointer;
-      background: #f8f8f8; color: #555; transition: all .15s;
-      display: flex; align-items: center; justify-content: center;
-    }
-    .adj-btn:hover { background: #eee; border-color: #ccc; }
-    .adjust-info { font-size: 11px; color: #aaa; margin-left: 4px; }
-
     footer {
       padding: 10px 16px 12px;
       border-top: 1px solid #eee;
@@ -132,17 +119,6 @@
       </div>
 
       <div id="status" class="status"></div>
-
-      <div id="adjust" class="adjust">
-        <div class="adjust-label">미세 조정</div>
-        <div class="adjust-row">
-          <button class="adj-btn" id="upBig" title="20px 위로">&#x25B2;</button>
-          <button class="adj-btn" id="upSmall" title="5px 위로">&#x25B5;</button>
-          <button class="adj-btn" id="downSmall" title="5px 아래로">&#x25BF;</button>
-          <button class="adj-btn" id="downBig" title="20px 아래로">&#x25BC;</button>
-          <span class="adjust-info" id="adjustInfo"></span>
-        </div>
-      </div>
     </main>
     <footer>
       <span class="dot" id="dot"></span>

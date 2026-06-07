@@ -30,7 +30,7 @@
     sendToTab(tabId, { action: "getState" }, function (state) {
       if (!state) return;
       $("toggle").checked = state.active;
-      if (state.totalPages) showResult(state.totalPages, state.pageH);
+      if (state.totalPages) showResult(state.totalPages);
       updateUI(state.active);
     });
 
@@ -39,7 +39,7 @@
       var on = $("toggle").checked;
       sendToTab(tabId, { action: on ? "activate" : "deactivate" }, function (resp) {
         updateUI(on);
-        if (resp && resp.totalPages) showResult(resp.totalPages, resp.pageH);
+        if (resp && resp.totalPages) showResult(resp.totalPages);
       });
     });
 
@@ -48,7 +48,7 @@
       var v = parseInt($("pageCount").value, 10);
       if (!v || v < 1) return;
       sendToTab(tabId, { action: "calibrate", pageCount: v }, function (resp) {
-        if (resp && resp.totalPages) showResult(resp.totalPages, resp.pageH);
+        if (resp && resp.totalPages) showResult(resp.totalPages);
       });
     }
     $("applyBtn").addEventListener("click", apply);
@@ -64,24 +64,11 @@
 
     // 마크 완료 수신
     chrome.runtime.onMessage.addListener(function (msg) {
-      if (msg.action === "markDone") showResult(msg.totalPages, msg.pageH);
+      if (msg.action === "markDone") showResult(msg.totalPages);
     });
 
-    // 미세 조정
-    function adjust(delta) {
-      sendToTab(tabId, { action: "adjustPageH", delta: delta }, function (resp) {
-        if (resp) showResult(resp.totalPages, resp.pageH);
-      });
-    }
-    $("upBig").addEventListener("click", function () { adjust(-20); });
-    $("upSmall").addEventListener("click", function () { adjust(-5); });
-    $("downSmall").addEventListener("click", function () { adjust(5); });
-    $("downBig").addEventListener("click", function () { adjust(20); });
-
-    function showResult(totalPages, pageH) {
+    function showResult(totalPages) {
       $("status").textContent = "미리보기: 총 " + totalPages + "페이지";
-      $("adjust").classList.add("show");
-      if (pageH) $("adjustInfo").textContent = pageH + "px";
     }
 
     function updateUI(on) {
